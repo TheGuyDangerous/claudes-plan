@@ -1,0 +1,45 @@
+name: Refresh Claude Tokens
+
+on:
+  schedule:
+    # Public repo = unlimited Actions minutes, so we check hourly instead of
+    # every 6 hours — tighter margin against the 2h expiry-refresh buffer.
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read   # only checks out repos; no git pushes, no secret writes
+
+concurrency:
+  group: refresh-claude-tokens
+  cancel-in-progress: false   # queue instead of overlapping writes to the same Firestore docs
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout logic repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.PRIVATE_REPO_NAME }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: core
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: core
+        run: npm ci
+
+      - name: Refresh accounts
+        working-directory: core
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/refresh-accounts.mjs
