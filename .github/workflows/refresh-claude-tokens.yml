@@ -5,13 +5,22 @@ on:
     # Public repo = unlimited Actions minutes, so we check hourly instead of
     # every 6 hours — tighter margin against the 2h expiry-refresh buffer.
     - cron: '0 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      account_id:
+        description: 'Firestore document id to refresh (leave blank to refresh all active)'
+        required: false
+        type: string
+      dispatch_secret:
+        description: 'Shared secret required for manual app-triggered refreshes'
+        required: true
+        type: string
 
 permissions:
   contents: read   # only checks out repos; no git pushes, no secret writes
 
 concurrency:
-  group: refresh-claude-tokens
+  group: refresh-claude-tokens-${{ github.event.inputs.account_id || 'all' }}
   cancel-in-progress: false   # queue instead of overlapping writes to the same Firestore docs
 
 env:
@@ -22,6 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Validate manual dispatch secret
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED: ${{ secrets.WORKFLOW_DISPATCH_SECRET }}
+        run: |
+          if [ "${{ github.event.inputs.dispatch_secret }}" != "$EXPECTED" ]; then
+            echo "::error::Invalid dispatch_secret — refusing to run."
+            exit 1
+          fi
+
       - name: Checkout logic repository
         uses: actions/checkout@v4
         with:
@@ -42,4 +61,6 @@ jobs:
         working-directory: core
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          REFRESH_ACCOUNT_ID: ${{ github.event.inputs.account_id }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.account_id != '' && 'true' || '' }}
         run: node scripts/refresh-accounts.mjs
