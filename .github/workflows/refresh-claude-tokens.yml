@@ -2,13 +2,15 @@ name: Refresh Claude Tokens
 
 on:
   schedule:
-    # Public repo = unlimited Actions minutes, so we check hourly instead of
-    # every 6 hours — tighter margin against the 2h expiry-refresh buffer.
     - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       account_id:
-        description: 'Firestore document id to refresh (leave blank to refresh all active)'
+        description: 'Firestore account document id (under users/{owner_uid}/claude_accounts)'
+        required: false
+        type: string
+      owner_uid:
+        description: 'Firebase Auth UID of the account owner (required with account_id)'
         required: false
         type: string
       dispatch_secret:
@@ -17,11 +19,11 @@ on:
         type: string
 
 permissions:
-  contents: read   # only checks out repos; no git pushes, no secret writes
+  contents: read
 
 concurrency:
-  group: refresh-claude-tokens-${{ github.event.inputs.account_id || 'all' }}
-  cancel-in-progress: false   # queue instead of overlapping writes to the same Firestore docs
+  group: refresh-claude-tokens-${{ github.event.inputs.owner_uid || 'all' }}-${{ github.event.inputs.account_id || 'all' }}
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: '20'
@@ -62,5 +64,6 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           REFRESH_ACCOUNT_ID: ${{ github.event.inputs.account_id }}
+          REFRESH_OWNER_UID: ${{ github.event.inputs.owner_uid }}
           FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.account_id != '' && 'true' || '' }}
         run: node scripts/refresh-accounts.mjs
